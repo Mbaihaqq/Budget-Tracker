@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import Navbar from './components/Navbar';
-import { Trash2 } from 'lucide-react'; // Import icon tempat sampah
+import { Trash2, Send } from 'lucide-react';
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -10,17 +10,22 @@ export default function App() {
   const [balance, setBalance] = useState(0);
   const [expenses, setExpenses] = useState([]);
   
-  // --- STATE AUTH ---
+  // State Auth
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // --- STATE FORM INPUT (Admin) ---
+  // State Form Input (Admin)
   const [newTitle, setNewTitle] = useState('');
   const [newAmount, setNewAmount] = useState('');
-  const [imageFile, setImageFile] = useState(null); // State untuk file gambar
-  const [uploading, setUploading] = useState(false); // Loading upload gambar
+  const [imageFile, setImageFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  // --- STATE BARU UNTUK KOMENTAR ---
+  const [selectedExpense, setSelectedExpense] = useState(null); // Pengeluaran mana yang lagi dikomentari
+  const [comments, setComments] = useState([]); // List komentar
+  const [newComment, setNewComment] = useState(''); // Text input komentar
 
   // 1. Cek Session Login
   useEffect(() => {
@@ -36,14 +41,22 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Fetch Data
+  // 2. Fetch Data Utama
   useEffect(() => {
     if (session) {
       fetchWallet();
       fetchExpenses();
     }
-  }, [session, activeTab]);
+  }, [session, activeTab]); // Refresh saat tab ganti
 
+  // 3. Fetch Komentar (Jalan otomatis saat selectedExpense berubah)
+  useEffect(() => {
+    if (selectedExpense) {
+      fetchComments(selectedExpense.id);
+    }
+  }, [selectedExpense]);
+
+  // --- FUNGSI API ---
   const fetchProfile = async (userId) => {
     const { data } = await supabase.from('profiles').select('role').eq('id', userId).single();
     if(data) setRole(data.role);
@@ -57,6 +70,22 @@ export default function App() {
   const fetchExpenses = async () => {
     const { data } = await supabase.from('expenses').select('*').order('created_at', { ascending: false });
     if (data) setExpenses(data);
+  };
+
+  const fetchComments = async (expenseId) => {
+    // Ambil komentar beserta email pengirimnya (Join tabel profiles)
+    // Pastikan tabel profiles dan foreign key sudah benar. Jika error, kita ambil basic dulu.
+    const { data, error } = await supabase
+      .from('comments')
+      .select(`
+        *,
+        profiles ( email )
+      `)
+      .eq('expense_id', expenseId)
+      .order('created_at', { ascending: true });
+    
+    if (error) console.error("Error fetch comments:", error);
+    else setComments(data || []);
   };
 
   // --- LOGIKA AUTH ---
@@ -74,7 +103,7 @@ export default function App() {
     setLoading(false);
   };
 
-  // --- LOGIKA TAMBAH PENGELUARAN (+ GAMBAR) ---
+  // --- LOGIKA UTAMA ---
   const handleAddExpense = async (e) => {
     e.preventDefault();
     const amount = parseInt(newAmount);
@@ -86,197 +115,199 @@ export default function App() {
       setUploading(true);
       let uploadedImageUrl = null;
 
-      // 1. Proses Upload Gambar (Jika ada)
       if (imageFile) {
         const fileExt = imageFile.name.split('.').pop();
-        const fileName = `${Date.now()}.${fileExt}`; // Nama file unik pakai timestamp
-        const filePath = `${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-          .from('receipts') // Nama bucket yang kita buat tadi
-          .upload(filePath, imageFile);
-
+        const fileName = `${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage.from('receipts').upload(fileName, imageFile);
         if (uploadError) throw uploadError;
-
-        // Dapatkan URL publik gambar
-        const { data: urlData } = supabase.storage
-          .from('receipts')
-          .getPublicUrl(filePath);
-        
+        const { data: urlData } = supabase.storage.from('receipts').getPublicUrl(fileName);
         uploadedImageUrl = urlData.publicUrl;
       }
 
-      // 2. Simpan Data ke Database
-      const { error: insertError } = await supabase
-        .from('expenses')
-        .insert([{ 
-          title: newTitle, 
-          amount: amount,
-          image_url: uploadedImageUrl // Masukkan URL gambar
-        }]);
-      
-      if (insertError) throw insertError;
+      const { error } = await supabase.from('expenses').insert([{ title: newTitle, amount: amount, image_url: uploadedImageUrl }]);
+      if (error) throw error;
 
-      alert("Berhasil disimpan!");
-      // Reset Form
+      alert("Disimpan!");
       setNewTitle(''); setNewAmount(''); setImageFile(null);
-      // Refresh Data
       fetchWallet(); fetchExpenses();
-
     } catch (error) {
-      alert("Gagal menyimpan: " + error.message);
+      alert("Gagal: " + error.message);
     } finally {
       setUploading(false);
     }
   };
 
-  // --- LOGIKA HAPUS PENGELUARAN (BARU) ---
   const handleDeleteExpense = async (id) => {
     if (role !== 'admin') return;
-    if (!window.confirm("Yakin ingin menghapus? Saldo akan dikembalikan.")) return;
+    if (!window.confirm("Hapus data ini?")) return;
+    await supabase.from('expenses').delete().eq('id', id);
+    fetchWallet(); fetchExpenses();
+  };
 
-    const { error } = await supabase.from('expenses').delete().eq('id', id);
-    
+  // --- LOGIKA KOMENTAR ---
+  const openCommentSection = (expense) => {
+    setSelectedExpense(expense); // Set pengeluaran yang dipilih
+    setActiveTab('comments'); // Pindah ke tab komentar
+  };
+
+  const handleSendComment = async (e) => {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+
+    const { error } = await supabase.from('comments').insert([{
+      expense_id: selectedExpense.id,
+      user_id: session.user.id,
+      content: newComment
+    }]);
+
     if (error) {
-      alert("Gagal menghapus: " + error.message);
+      alert("Gagal kirim komentar: " + error.message);
     } else {
-      // Trigger SQL di Supabase akan otomatis mengembalikan saldo.
-      // Kita hanya perlu refresh tampilan di sini.
-      fetchWallet(); 
-      fetchExpenses();
+      setNewComment('');
+      fetchComments(selectedExpense.id); // Refresh chat
     }
   };
 
-  // --- HELPER: Format Tanggal ---
-  const formatDate = (dateString) => {
-    const options = { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute:'2-digit' };
-    return new Date(dateString).toLocaleDateString('id-ID', options);
-  };
+  // --- HELPER ---
+  const formatDate = (date) => new Date(date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour:'2-digit', minute:'2-digit'});
 
-  // --- TAMPILAN LOGIN ---
+  // --- LOGIN PAGE ---
   if (!session) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-gray-100 p-4">
         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-sm text-center">
           <h1 className="text-3xl font-bold text-emerald-600 mb-2">BudgetPWA</h1>
-          <p className="text-gray-500 mb-6">{isSignUp ? "Daftar Akun Baru" : "Masuk ke Aplikasi"}</p>
-          <form onSubmit={handleAuth} className="flex flex-col gap-4">
+          <form onSubmit={handleAuth} className="flex flex-col gap-4 mt-6">
             <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} className="border p-3 rounded-lg" required />
             <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} className="border p-3 rounded-lg" required />
-            <button disabled={loading} className="bg-emerald-600 text-white p-3 rounded-lg font-bold hover:bg-emerald-700 transition">
-              {loading ? 'Memproses...' : (isSignUp ? 'Daftar Sekarang' : 'Masuk / Login')}
-            </button>
+            <button disabled={loading} className="bg-emerald-600 text-white p-3 rounded-lg font-bold">{loading ? '...' : (isSignUp ? 'Daftar' : 'Login')}</button>
           </form>
-          <p className="mt-4 text-sm text-gray-600">
-            <button onClick={() => setIsSignUp(!isSignUp)} className="text-emerald-600 font-bold hover:underline">
-              {isSignUp ? "Login disini" : "Daftar disini"}
-            </button>
-          </p>
+          <button onClick={() => setIsSignUp(!isSignUp)} className="text-emerald-600 text-sm mt-4 font-bold">{isSignUp ? "Login disini" : "Daftar disini"}</button>
         </div>
       </div>
     );
   }
 
-  // --- TAMPILAN DASHBOARD ---
+  // --- MAIN APP ---
   return (
     <div className="min-h-screen bg-gray-50 flex font-sans text-slate-800">
       <Navbar role={role} onLogout={() => supabase.auth.signOut()} activeTab={activeTab} setActiveTab={setActiveTab} />
       
       <main className="flex-1 md:ml-64 p-4 md:p-8 mb-20 md:mb-0 overflow-y-auto">
+        
+        {/* === TAB DASHBOARD === */}
         {activeTab === 'dashboard' && (
           <div className="max-w-4xl mx-auto">
-            {/* Kartu Saldo */}
             <div className="bg-gradient-to-r from-emerald-500 to-teal-600 p-8 rounded-3xl text-white shadow-lg mb-8">
-              <p className="opacity-90 font-medium">Sisa Uang Tunai</p>
-              <h2 className="text-4xl md:text-5xl font-bold mt-2">Rp {parseInt(balance).toLocaleString('id-ID')}</h2>
-              <div className="mt-4 inline-block bg-white/20 px-3 py-1 rounded-full text-sm">
-                Status: {role === 'admin' ? '👑 Administrator' : '👤 User Viewer'}
-              </div>
+              <p className="opacity-90">Sisa Uang Tunai</p>
+              <h2 className="text-4xl font-bold mt-2">Rp {parseInt(balance).toLocaleString('id-ID')}</h2>
+              <span className="bg-white/20 px-3 py-1 rounded-full text-xs mt-4 inline-block">{role === 'admin' ? '👑 Admin' : '👤 User'}</span>
             </div>
 
-            {/* Form Input Khusus Admin (+ Upload Gambar) */}
             {role === 'admin' && (
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 mb-8">
-                <h3 className="font-bold text-gray-800 text-lg mb-4">Tambah Pengeluaran</h3>
-                <form onSubmit={handleAddExpense} className="flex flex-col gap-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <input 
-                      type="text" placeholder="Untuk apa?" className="border p-3 rounded-xl bg-gray-50" 
-                      value={newTitle} onChange={e => setNewTitle(e.target.value)} required 
-                    />
-                    <input 
-                      type="number" placeholder="Nominal (Rp)" className="border p-3 rounded-xl bg-gray-50" 
-                      value={newAmount} onChange={e => setNewAmount(e.target.value)} min="1" required 
-                    />
+              <div className="bg-white p-6 rounded-2xl shadow-sm mb-8">
+                <h3 className="font-bold mb-4">Tambah Pengeluaran</h3>
+                <form onSubmit={handleAddExpense} className="flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="text" placeholder="Judul" value={newTitle} onChange={e => setNewTitle(e.target.value)} className="border p-2 rounded-lg" required />
+                    <input type="number" placeholder="Rp" value={newAmount} onChange={e => setNewAmount(e.target.value)} min="1" className="border p-2 rounded-lg" required />
                   </div>
-                  {/* Input File Gambar */}
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="file" 
-                      accept="image/*"
-                      onChange={e => setImageFile(e.target.files[0])}
-                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"
-                    />
-                  </div>
-                  <button disabled={uploading} className="bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition shadow-lg disabled:opacity-50">
-                    {uploading ? 'Mengupload...' : 'Simpan Pengeluaran'}
-                  </button>
+                  <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files[0])} className="text-sm text-slate-500" />
+                  <button disabled={uploading} className="bg-slate-900 text-white py-2 rounded-lg font-bold">{uploading ? 'Upload...' : 'Simpan'}</button>
                 </form>
               </div>
             )}
 
-            {/* List Pengeluaran (Update Tampilan) */}
-            <h3 className="font-bold text-gray-700 mb-4 text-lg">Riwayat Pengeluaran</h3>
             <div className="space-y-3">
               {expenses.map((exp) => (
-                <div key={exp.id} className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-start border-l-4 border-red-400">
-                  
-                  {/* Bagian Kiri: Gambar & Info */}
-                  <div className="flex gap-3 items-start">
-                    {/* Thumbnail Gambar (Jika ada) */}
+                <div key={exp.id} className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-start border-l-4 border-emerald-400">
+                  <div className="flex gap-3">
                     {exp.image_url ? (
-                      <a href={exp.image_url} target="_blank" rel="noreferrer">
-                        <img src={exp.image_url} alt="struk" className="w-16 h-16 object-cover rounded-lg border hover:opacity-80 transition" />
-                      </a>
-                    ) : (
-                       <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 text-xs">No Image</div>
-                    )}
-                    
+                      <img src={exp.image_url} className="w-12 h-12 rounded object-cover border" alt="struk" />
+                    ) : <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-400">No img</div>}
                     <div>
-                      <p className="font-bold text-gray-800 text-lg">{exp.title}</p>
-                      {/* Menampilkan Tanggal dengan Format Rapi */}
-                      <p className="text-xs text-gray-500 mt-1">{formatDate(exp.created_at)}</p>
-                      {role === 'user' && <button onClick={() => setActiveTab('comments')} className="text-xs text-emerald-600 font-semibold mt-1">Beri Komentar</button>}
+                      <p className="font-bold">{exp.title}</p>
+                      <p className="text-xs text-gray-400">{formatDate(exp.created_at)}</p>
+                      {/* TOMBOL UNTUK BUKA KOMENTAR */}
+                      <button onClick={() => openCommentSection(exp)} className="text-xs text-emerald-600 font-bold mt-1 hover:underline">
+                        💬 Lihat / Balas Komentar
+                      </button>
                     </div>
                   </div>
-
-                  {/* Bagian Kanan: Nominal & Tombol Hapus */}
-                  <div className="flex flex-col items-end gap-2">
-                    <span className="text-red-500 font-bold text-lg">- Rp {parseInt(exp.amount).toLocaleString('id-ID')}</span>
-                    
-                    {/* Tombol Hapus (Khusus Admin) */}
-                    {role === 'admin' && (
-                      <button 
-                        onClick={() => handleDeleteExpense(exp.id)}
-                        className="text-gray-400 hover:text-red-500 transition p-1"
-                        title="Hapus Pengeluaran"
-                      >
-                        <Trash2 size={18} />
-                      </button>
-                    )}
+                  <div className="text-right">
+                    <p className="text-red-500 font-bold">- Rp {parseInt(exp.amount).toLocaleString('id-ID')}</p>
+                    {role === 'admin' && <button onClick={() => handleDeleteExpense(exp.id)} className="text-gray-400 hover:text-red-500 mt-1"><Trash2 size={16}/></button>}
                   </div>
-
                 </div>
               ))}
             </div>
           </div>
         )}
-        {activeTab !== 'dashboard' && (
-           <div className="flex flex-col items-center justify-center h-full text-gray-400 mt-20">
-             <p className="text-xl font-bold">Halaman {activeTab.toUpperCase()}</p>
-             <p>Fitur {activeTab} akan muncul di sini.</p>
+
+        {/* === TAB COMMENTS (FITUR BARU) === */}
+        {activeTab === 'comments' && (
+          <div className="max-w-md mx-auto h-[80vh] flex flex-col bg-white rounded-2xl shadow-xl overflow-hidden border">
+            {/* Header Chat */}
+            <div className="bg-slate-100 p-4 border-b flex justify-between items-center">
+              <div>
+                <h3 className="font-bold text-slate-700">Komentar</h3>
+                {selectedExpense ? (
+                   <p className="text-xs text-emerald-600 font-semibold">Topik: {selectedExpense.title}</p>
+                ) : (
+                   <p className="text-xs text-red-500">Silakan pilih pengeluaran di Dashboard dulu</p>
+                )}
+              </div>
+              <button onClick={() => setActiveTab('dashboard')} className="text-xs text-blue-500 underline">Kembali</button>
+            </div>
+
+            {/* Isi Chat */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
+              {!selectedExpense && <div className="text-center text-gray-400 mt-10">Pilih "Lihat Komentar" pada salah satu pengeluaran di Dashboard.</div>}
+              
+              {selectedExpense && comments.length === 0 && (
+                <div className="text-center text-gray-400 mt-10 text-sm">Belum ada komentar. Mulailah percakapan!</div>
+              )}
+
+              {comments.map((chat) => (
+                <div key={chat.id} className={`flex flex-col ${chat.user_id === session.user.id ? 'items-end' : 'items-start'}`}>
+                  <div className={`max-w-[80%] p-3 rounded-xl text-sm ${chat.user_id === session.user.id ? 'bg-emerald-100 text-emerald-900 rounded-tr-none' : 'bg-white border text-gray-700 rounded-tl-none'}`}>
+                    <p>{chat.content}</p>
+                  </div>
+                  <span className="text-[10px] text-gray-400 mt-1">
+                    {chat.profiles?.email?.split('@')[0] || 'User'} • {new Date(chat.created_at).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'})}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Input Chat */}
+            {selectedExpense && (
+              <form onSubmit={handleSendComment} className="p-3 border-t bg-white flex gap-2">
+                <input 
+                  type="text" 
+                  placeholder="Tulis komentar..." 
+                  value={newComment}
+                  onChange={e => setNewComment(e.target.value)}
+                  className="flex-1 border border-gray-300 rounded-full px-4 py-2 text-sm focus:outline-emerald-500"
+                />
+                <button className="bg-emerald-600 text-white p-2 rounded-full hover:bg-emerald-700 transition">
+                  <Send size={18} />
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* === TAB WALLET / SETTINGS (Placeholder agar Navbar terasa hidup) === */}
+        {(activeTab === 'wallet' || activeTab === 'settings') && (
+           <div className="flex flex-col items-center justify-center h-full text-gray-400 mt-10">
+             <div className="text-6xl mb-4">{activeTab === 'wallet' ? '💰' : '⚙️'}</div>
+             <p className="text-xl font-bold capitalize">{activeTab}</p>
+             <p className="text-sm">Fitur ini belum diimplementasikan sepenuhnya.</p>
+             <button onClick={() => setActiveTab('dashboard')} className="mt-4 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-lg text-sm font-bold">Kembali ke Dashboard</button>
            </div>
         )}
+
       </main>
     </div>
   );
