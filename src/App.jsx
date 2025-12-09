@@ -9,10 +9,10 @@ export default function App() {
   const [balance, setBalance] = useState(0);
   const [expenses, setExpenses] = useState([]);
   
-  // --- STATE BARU UNTUK LOGIN PASSWORD ---
+  // --- STATE AUTH ---
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState(''); // State Password
-  const [isSignUp, setIsSignUp] = useState(false); // Mode Daftar atau Login
+  const [password, setPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Form Input Data (Admin)
@@ -62,7 +62,6 @@ export default function App() {
     setLoading(true);
 
     if (isSignUp) {
-      // --- MODE DAFTAR ---
       const { data, error } = await supabase.auth.signUp({
         email: email,
         password: password,
@@ -71,10 +70,9 @@ export default function App() {
         alert("Gagal Daftar: " + error.message);
       } else {
         alert("Pendaftaran Berhasil! Silakan Login.");
-        setIsSignUp(false); // Pindah ke mode login otomatis
+        setIsSignUp(false);
       }
     } else {
-      // --- MODE LOGIN ---
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email,
         password: password,
@@ -84,11 +82,24 @@ export default function App() {
     setLoading(false);
   };
 
+  // --- LOGIKA TAMBAH PENGELUARAN (DENGAN VALIDASI) ---
   const handleAddExpense = async (e) => {
     e.preventDefault();
+
+    // 1. Validasi Input
+    const amount = parseInt(newAmount); // Ubah text jadi angka
+    if (!amount || amount <= 0) {
+      return alert("Nominal harus lebih besar dari 0!");
+    }
+    if (!newTitle.trim()) {
+      return alert("Judul pengeluaran tidak boleh kosong!");
+    }
+
+    // 2. Cek Role
     if (role !== 'admin') return alert("Hanya Admin yang boleh!");
 
-    const { error } = await supabase.from('expenses').insert([{ title: newTitle, amount: newAmount }]);
+    // 3. Simpan ke Database
+    const { error } = await supabase.from('expenses').insert([{ title: newTitle, amount: amount }]);
     if (!error) {
       alert("Berhasil disimpan!");
       setNewTitle(''); setNewAmount('');
@@ -110,34 +121,23 @@ export default function App() {
           
           <form onSubmit={handleAuth} className="flex flex-col gap-4">
             <input 
-              type="email" 
-              placeholder="Email" 
-              value={email}
+              type="email" placeholder="Email" value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full border p-3 rounded-lg focus:outline-emerald-500" 
-              required 
+              className="w-full border p-3 rounded-lg focus:outline-emerald-500" required 
             />
             <input 
-              type="password" 
-              placeholder="Password" 
-              value={password}
+              type="password" placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full border p-3 rounded-lg focus:outline-emerald-500" 
-              required 
+              className="w-full border p-3 rounded-lg focus:outline-emerald-500" required 
             />
-            
             <button disabled={loading} className="bg-emerald-600 text-white p-3 rounded-lg font-bold hover:bg-emerald-700 transition">
               {loading ? 'Memproses...' : (isSignUp ? 'Daftar Sekarang' : 'Masuk / Login')}
             </button>
           </form>
 
-          {/* Toggle Login/Daftar */}
           <p className="mt-4 text-sm text-gray-600">
             {isSignUp ? "Sudah punya akun? " : "Belum punya akun? "}
-            <button 
-              onClick={() => setIsSignUp(!isSignUp)} 
-              className="text-emerald-600 font-bold hover:underline"
-            >
+            <button onClick={() => setIsSignUp(!isSignUp)} className="text-emerald-600 font-bold hover:underline">
               {isSignUp ? "Login disini" : "Daftar disini"}
             </button>
           </p>
@@ -146,7 +146,7 @@ export default function App() {
     );
   }
 
-  // --- TAMPILAN DASHBOARD (Sama seperti sebelumnya) ---
+  // --- TAMPILAN DASHBOARD ---
   return (
     <div className="min-h-screen bg-gray-50 flex font-sans text-slate-800">
       <Navbar role={role} onLogout={() => supabase.auth.signOut()} activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -171,8 +171,13 @@ export default function App() {
                     value={newTitle} onChange={e => setNewTitle(e.target.value)} required 
                   />
                   <input 
-                    type="number" placeholder="Nominal (Rp)" className="border p-3 rounded-xl bg-gray-50" 
-                    value={newAmount} onChange={e => setNewAmount(e.target.value)} required 
+                    type="number" 
+                    placeholder="Nominal (Rp)" 
+                    className="border p-3 rounded-xl bg-gray-50" 
+                    value={newAmount} 
+                    onChange={e => setNewAmount(e.target.value)} 
+                    min="1" // Mencegah input negatif di UI
+                    required 
                   />
                   <button className="bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition shadow-lg">
                     Simpan
