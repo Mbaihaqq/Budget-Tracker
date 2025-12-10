@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'masked-icon.svg'],
       manifest: {
-        name: 'Aplikasi Keuangan',
-        short_name: 'BudgetKu',
-        description: 'Budget Tracker PWA',
+        name: 'Budget Tracker',
+        short_name: 'Budget Tracker',
+        description: 'Budget Tracker Baihaqi',
         theme_color: '#ffffff',
         display: 'standalone', // Ini yang bikin dia kayak aplikasi native
         icons: [
