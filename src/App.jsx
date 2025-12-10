@@ -5,7 +5,6 @@ import WalletTab from './components/WalletTab';
 import ExpensesTab from './components/ExpensesTab';
 import SettingsTab from './components/SettingsTab';
 import ExpenseDetailModal from './components/ExpenseDetailModal';
-// [UPDATE] Import icon panah untuk indikator masuk/keluar
 import { Trash2, Send, Eye, EyeOff, User, Lock, Wallet, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 
 export default function App() {
@@ -17,7 +16,7 @@ export default function App() {
   
   // Data Lists
   const [expenses, setExpenses] = useState([]);
-  const [incomes, setIncomes] = useState([]); // [BARU] State untuk Pemasukkan di Dashboard
+  const [incomes, setIncomes] = useState([]); 
   
   // State Auth
   const [usernameInput, setUsernameInput] = useState('');
@@ -63,12 +62,11 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // [UPDATE] Fetch Incomes juga saat dashboard dimuat
   useEffect(() => {
     if (session) {
       fetchWallet();
       fetchExpenses();
-      fetchIncomes(); // <--- Panggil ini
+      fetchIncomes();
     }
   }, [session, activeTab]); 
 
@@ -92,7 +90,6 @@ export default function App() {
     const { data } = await supabase.from('expenses').select('*').order('created_at', { ascending: false });
     if (data) setExpenses(data);
   };
-  // [BARU] Fungsi Fetch Incomes
   const fetchIncomes = async () => {
     const { data } = await supabase.from('incomes').select('*').order('created_at', { ascending: false });
     if (data) setIncomes(data);
@@ -178,7 +175,6 @@ export default function App() {
     fetchWallet(); fetchExpenses();
   };
 
-  // [BARU] Hapus Income dari Dashboard (Khusus Admin)
   const handleDeleteIncome = async (id) => {
     if (role !== 'admin') return;
     if (!confirm("Hapus pemasukkan ini? Saldo akan berkurang.")) return;
@@ -201,7 +197,7 @@ export default function App() {
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600 shadow-inner"><Wallet size={32} /></div>
             <h1 className="text-3xl font-bold text-slate-800">Budget Tracker</h1>
-            <p className="text-slate-500 text-sm mt-2">Total Pemasukkan & Pengeluaran Baihaqi</p>
+            <p className="text-slate-500 text-sm mt-2">Total Pemasukkan & Pengeluaran {usernameInput || 'Anda'}</p>
           </div>
           <form onSubmit={handleAuth} className="flex flex-col gap-5">
             <div className="relative">
@@ -239,9 +235,13 @@ export default function App() {
             {/* Header Saldo */}
             <div className="bg-gradient-to-r from-emerald-500 to-teal-600 p-8 rounded-3xl text-white shadow-lg mb-8 relative overflow-hidden">
               <div className="relative z-10">
-                <p className="opacity-90">Halo, <span className="font-bold text-yellow-300">{usernameDisplay}</span></p>
-                <h2 className="text-4xl font-bold mt-2">Rp {parseInt(balance).toLocaleString('id-ID')}</h2>
-                <span className="bg-white/20 px-3 py-1 rounded-full text-xs mt-4 inline-block">{role === 'admin' ? '👑 Admin' : '👤 User'}</span>
+                <p className="opacity-90 mb-1">Halo, <span className="font-bold text-yellow-300">{usernameDisplay}</span></p>
+                
+                {/* [UBAH] Menambahkan text Sisa Saldo disini */}
+                <p className="text-sm opacity-80 font-medium mb-1">Sisa Saldo Sekarang</p>
+                
+                <h2 className="text-4xl font-bold">Rp {parseInt(balance).toLocaleString('id-ID')}</h2>
+                <span className="bg-white/20 px-3 py-1 rounded-full text-xs mt-4 inline-block">{role === 'admin' ? ' Admin' : ' User'}</span>
               </div>
             </div>
 
@@ -290,14 +290,13 @@ export default function App() {
                       </div>
                     </div>
                   ))}
-                  {/* Tombol Lihat Semua jika data banyak */}
                   {expenses.length > 5 && (
                     <button onClick={() => setActiveTab('expenses')} className="w-full py-2 text-xs text-center text-gray-500 hover:text-emerald-600 bg-gray-100 dark:bg-slate-800 rounded-lg">Lihat Semua Pengeluaran</button>
                   )}
                 </div>
               </div>
 
-              {/* Kolom 2: Pemasukkan Terbaru (BARU) */}
+              {/* Kolom 2: Pemasukkan Terbaru */}
               <div className="space-y-4">
                 <h3 className="font-bold text-slate-700 dark:text-gray-300 flex items-center gap-2">
                   <ArrowDownLeft className="text-emerald-500" /> Pemasukkan Terbaru
@@ -321,7 +320,6 @@ export default function App() {
                       </div>
                     </div>
                   ))}
-                  {/* Tombol Lihat Semua ke Wallet Tab */}
                   {incomes.length > 5 && (
                     <button onClick={() => setActiveTab('wallet')} className="w-full py-2 text-xs text-center text-gray-500 hover:text-emerald-600 bg-gray-100 dark:bg-slate-800 rounded-lg">Lihat Semua Pemasukkan</button>
                   )}
