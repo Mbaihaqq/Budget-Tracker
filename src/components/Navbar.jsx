@@ -15,7 +15,7 @@ const Navbar = ({ role, onLogout, activeTab, setActiveTab }) => {
     <>
       {/* === DESKTOP VIEW (SIDEBAR KIRI) === */}
       <div className="hidden md:flex flex-col w-64 h-screen bg-slate-900 text-white fixed left-0 top-0 p-4">
-        <h1 className="text-2xl font-bold mb-8 text-emerald-400 px-2">BudgetApp</h1>
+        <h1 className="text-2xl font-bold mb-8 text-emerald-400 px-2">Budget Tracker</h1>
         <div className="flex flex-col gap-2 flex-1">
           {menuItems.map((item) => (
             <button 
