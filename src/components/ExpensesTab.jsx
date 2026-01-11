@@ -6,7 +6,7 @@ export default function ExpensesTab({ expenses }) {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6">Daftar Semua Pengeluaran</h2>
+      <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-6">Daftar Semua Pengeluaran baihaqi</h2>
       
       <div className="space-y-3">
         {expenses.length === 0 && <p className="text-gray-400">Belum ada data.</p>}
